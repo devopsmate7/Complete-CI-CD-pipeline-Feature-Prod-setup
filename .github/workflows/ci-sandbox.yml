@@ -1,0 +1,48 @@
+name: CI Sandbox - Terraform Plan
+
+on:
+  pull_request:
+    branches:
+      - sandbox
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+env:
+  TF_WORKING_DIR: terraform
+  TF_VAR_FILE: env/sandbox.tfvars
+  TF_BACKEND_KEY: github-actions-cicd/sandbox/terraform.tfstate
+
+jobs:
+  terraform-plan:
+    name: Terraform Plan - Sandbox
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: SANDBOX_AWS_ACCESS_KEY_ID
+          aws-secret-access-key: SANDBOX_AWS_SECRET_ACCESS_KEY
+          aws-region: us-east-1
+
+      - name: Terraform init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform init -backend-config="key=${{ env.TF_BACKEND_KEY }}"
+
+      - name: Terraform validate
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform validate
+
+      - name: Terraform plan
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform plan -var-file=${{ env.TF_VAR_FILE }} -no-color
+

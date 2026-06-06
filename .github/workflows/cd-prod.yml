@@ -1,0 +1,48 @@
+name: CD Prod - Terraform Apply
+
+on:
+  push:
+    branches:
+      - prod
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  TF_WORKING_DIR: terraform
+  TF_VAR_FILE: env/prod.tfvars
+  TF_BACKEND_KEY: github-actions-cicd/prod/terraform.tfstate
+
+jobs:
+  terraform-apply:
+    name: Terraform Apply - Prod
+    runs-on: ubuntu-latest
+    environment: prod
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::444444444444:role/GitHubActionsTerraformProdRole
+          aws-region: us-east-1
+
+      - name: Terraform init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform init -backend-config="key=${{ env.TF_BACKEND_KEY }}"
+
+      - name: Terraform validate
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform validate
+
+      - name: Terraform apply
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform apply -var-file=${{ env.TF_VAR_FILE }} -auto-approve
+
