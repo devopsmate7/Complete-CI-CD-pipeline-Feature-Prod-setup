@@ -33,6 +33,8 @@ This project explains a complete GitHub Actions CI/CD flow for Terraform infrast
 
 ## Architecture Diagram
 
+### Promotion Flow
+
 ```mermaid
 %%{init: {"theme": "base", "themeVariables": {"primaryColor": "#e0f2fe", "primaryBorderColor": "#2563eb", "lineColor": "#16a34a", "fontFamily": "Inter, Arial", "tertiaryColor": "#efe7ff"}}}%%
 flowchart LR
@@ -73,6 +75,83 @@ flowchart LR
   class ApplySandbox,ApplyDev,ApplyQA,ApplyProd apply
   class SandboxAWS,DevAWS,QAAWS,ProdAWS aws
 ```
+
+### Rollback Flow
+
+If any step fails, do not move to the next environment. Fix the issue in the same branch and redeploy, or rollback to the last working code.
+
+```mermaid
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#fee2e2", "primaryBorderColor": "#dc2626", "lineColor": "#7c3aed", "fontFamily": "Inter, Arial", "tertiaryColor": "#fef3c7"}}}%%
+flowchart TD
+  classDef issue fill:#fee2e2,stroke:#dc2626,stroke-width:2px,color:#111827;
+  classDef action fill:#fef3c7,stroke:#f59e0b,stroke-width:2px,color:#111827;
+  classDef rollback fill:#ede9fe,stroke:#7c3aed,stroke-width:2px,color:#111827;
+  classDef success fill:#dcfce7,stroke:#16a34a,stroke-width:2px,color:#111827;
+
+  StartPR["Raise PR to env branch"]
+  CIPlan["CI workflow runs terraform plan"]
+  PlanCheck{"Plan successful?"}
+  PlanFail["Plan failed - do not merge PR"]
+  FixPR["Fix Terraform code in source branch"]
+  RetryPR["Raise PR again"]
+
+  MergePR["Merge PR into env branch"]
+  CDApply["CD workflow runs terraform apply"]
+  ApplyCheck{"Apply successful?"}
+  ApplyFail["Apply failed - workflow stops"]
+  FixBranch["Fix code or revert commit on env branch"]
+  PushAgain["Push to same env branch"]
+  Redeploy["CD workflow runs terraform apply again"]
+
+  LiveCheck{"Issue found after deployment?"}
+  Stable["Environment stable"]
+  RevertCommit["Revert last merge on env branch"]
+  RollbackPush["Push revert to env branch"]
+  RollbackApply["CD workflow applies previous working Terraform code"]
+  Restored["Infra restored to last stable state"]
+  ManualDispatch["Or run workflow_dispatch on CD workflow"]
+
+  StartPR --> CIPlan --> PlanCheck
+  PlanCheck -->|No| PlanFail --> FixPR --> RetryPR --> StartPR
+  PlanCheck -->|Yes| MergePR --> CDApply --> ApplyCheck
+  ApplyCheck -->|No| ApplyFail --> FixBranch --> PushAgain --> Redeploy --> ApplyCheck
+  ApplyCheck -->|Yes| LiveCheck
+  LiveCheck -->|No| Stable
+  LiveCheck -->|Yes| RevertCommit --> RollbackPush --> RollbackApply --> Restored
+  LiveCheck -->|Yes| ManualDispatch --> RollbackApply
+
+  class PlanFail,ApplyFail issue
+  class FixPR,RetryPR,FixBranch,PushAgain,RevertCommit,RollbackPush,ManualDispatch action
+  class RollbackApply,Restored rollback
+  class Stable success
+```
+
+### When to Rollback
+
+| Situation | What happens | Rollback action |
+|---|---|---|
+| `terraform plan` fails in CI | PR check fails, merge is blocked | Fix code in feature/source branch and raise PR again |
+| `terraform apply` fails in CD | GitHub Actions workflow fails | Fix the env branch code and push again, or revert the bad commit |
+| AWS issue after successful deploy | App or infra works incorrectly | Revert merge commit on that env branch and push |
+| Need quick recovery | Previous code was stable | Push revert, then CD workflow applies old Terraform code from git |
+
+Rollback idea for students:
+
+1. Every environment branch keeps its own Terraform state in S3.
+2. If new code causes a problem, revert git to the last good commit on that branch.
+3. Push the revert to the same branch.
+4. The CD workflow runs `terraform apply` again and restores the previous infrastructure.
+
+Example rollback on `dev` branch:
+
+```bash
+git checkout dev
+git pull origin dev
+git revert HEAD
+git push origin dev
+```
+
+This triggers `cd-dev.yml` and applies the previous working Terraform code to the dev AWS account.
 
 ---
 
